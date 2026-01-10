@@ -1,15 +1,12 @@
 import torch
-import numpy as np
 from skimage.transform import resize
-
-from chrislib.resolution_util import optimal_resize
-from chrislib.general import round_32, uninvert, invert, get_brightness, to2np
-from chrislib.color_util import batch_rgb2iuv, batch_iuv2rgb
-
-from intrinsic.ordinal_util import base_resize, equalize_predictions
 
 from altered_midas.midas_net import MidasNet
 from altered_midas.midas_net_custom import MidasNet_small
+from chrislib.color_util import batch_rgb2iuv, batch_iuv2rgb
+from chrislib.general import round_32, uninvert, invert, get_brightness, to2np
+from chrislib.resolution_util import optimal_resize
+from intrinsic.ordinal_util import base_resize, equalize_predictions
 
 STAGE_DICT = {
     # 'ordinal': 0,
@@ -20,9 +17,10 @@ STAGE_DICT = {
 }
 
 V1_DICT = {
-    'paper_weights' : 'https://github.com/compphoto/Intrinsic/releases/download/v1.0/final_weights.pt',
-    'rendered_only' : 'https://github.com/compphoto/Intrinsic/releases/download/v1.0/rendered_only_weights.pt'
+    'paper_weights': 'https://github.com/compphoto/Intrinsic/releases/download/v1.0/final_weights.pt',
+    'rendered_only': 'https://github.com/compphoto/Intrinsic/releases/download/v1.0/rendered_only_weights.pt'
 }
+
 
 def load_decompile(path):
     """call torch.load then convert the loaded keys from torch.compile to regular"""
@@ -32,8 +30,9 @@ def load_decompile(path):
     model_dict = {k[len(remove_prefix):] if k.startswith(remove_prefix) else k: v for k, v in compiled_dict.items()}
 
     return model_dict
-    
-def load_models(path, stage=4, device='cuda', compiled=False, chroma_dpt=False, alb_residual=False):
+
+
+def load_models(path, stage=4, device='cuda', compiled=False, alb_residual=False):
     """The networks as part of our intrinsic decomposition pipeline. Since the pipeline consists of stages,
     can load the models up to a specific stage in the pipeline
 
@@ -55,7 +54,7 @@ def load_models(path, stage=4, device='cuda', compiled=False, chroma_dpt=False, 
     models = {}
 
     load_func = load_decompile if compiled else torch.load
-    
+
     if isinstance(stage, str):
         stage = STAGE_DICT[stage]
 
@@ -71,19 +70,19 @@ def load_models(path, stage=4, device='cuda', compiled=False, chroma_dpt=False, 
         elif path == 'v2':
             print("loading v2 weights")
             base_url = 'https://github.com/compphoto/Intrinsic/releases/download/v2.0/'
-            ord_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_0.pt' , map_location=device, progress=True)
-            iid_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_1.pt' , map_location=device, progress=True)
-            col_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_2.pt' , map_location=device, progress=True)
-            alb_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_3.pt' , map_location=device, progress=True)
-            dif_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_4.pt' , map_location=device, progress=True)
+            ord_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_0.pt', map_location=device, progress=True)
+            iid_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_1.pt', map_location=device, progress=True)
+            col_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_2.pt', map_location=device, progress=True)
+            alb_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_3.pt', map_location=device, progress=True)
+            dif_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_4.pt', map_location=device, progress=True)
         elif path == 'v2.1':
             print("loading v2.1 weights")
             base_url = 'https://github.com/compphoto/Intrinsic/releases/download/v2.1/'
-            ord_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_0_v21.pt' , map_location=device, progress=True)
-            iid_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_1_v21.pt' , map_location=device, progress=True)
-            col_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_2_v21.pt' , map_location=device, progress=True)
-            alb_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_3_v21.pt' , map_location=device, progress=True)
-            dif_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_4_v21.pt' , map_location=device, progress=True)
+            ord_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_0_v21.pt', map_location=device, progress=True)
+            iid_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_1_v21.pt', map_location=device, progress=True)
+            col_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_2_v21.pt', map_location=device, progress=True)
+            alb_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_3_v21.pt', map_location=device, progress=True)
+            dif_state_dict = torch.hub.load_state_dict_from_url(base_url + 'stage_4_v21.pt', map_location=device, progress=True)
 
             alb_residual = True
 
@@ -107,25 +106,22 @@ def load_models(path, stage=4, device='cuda', compiled=False, chroma_dpt=False, 
     iid_model.eval()
     iid_model = iid_model.to(device)
     models['iid_model'] = iid_model
-    
+
     if stage >= 2:
-        if chroma_dpt:
-            col_model = DPTDepthModel(in_chan=7, out_chan=2)
-        else:
-            col_model = MidasNet(activation='sigmoid', input_channels=7, output_channels=2)
+        col_model = MidasNet(activation='sigmoid', input_channels=7, output_channels=2)
 
         col_model.load_state_dict(col_state_dict)
         col_model.eval()
         col_model = col_model.to(device)
         models['col_model'] = col_model
-    
+
     if stage >= 3:
         alb_model = MidasNet(activation='sigmoid', input_channels=9, output_channels=3, last_residual=alb_residual)
         alb_model.load_state_dict(alb_state_dict)
         alb_model.eval()
         alb_model = alb_model.to(device)
         models['alb_model'] = alb_model
-    
+
     if stage >= 4:
         dif_model = MidasNet(activation='sigmoid', input_channels=9, output_channels=3)
         dif_model.load_state_dict(dif_state_dict)
@@ -134,6 +130,7 @@ def load_models(path, stage=4, device='cuda', compiled=False, chroma_dpt=False, 
         models['dif_model'] = dif_model
 
     return models
+
 
 def run_gray_pipeline(
         models,
@@ -168,7 +165,7 @@ def run_gray_pipeline(
     results = {}
 
     orig_h, orig_w, _ = img_arr.shape
-    
+
     # if no confidence value set, just round original size to 32 for model input
     if resize_conf is None:
         img_arr = resize(img_arr, (round_32(orig_h), round_32(orig_w)), anti_aliasing=True)
@@ -181,13 +178,13 @@ def run_gray_pipeline(
             img_arr,
             (round_32(orig_h * scale), round_32(orig_w * scale)),
             anti_aliasing=True)
-    
+
     # if the confidence is a float use the optimal resize code from Miangoleh et al.
     elif isinstance(resize_conf, float):
         img_arr = optimal_resize(img_arr, conf=resize_conf)
 
     fh, fw, _ = img_arr.shape
-    
+
     # if the image is in sRGB we do simple linearization using gamma=2.2
     if not linear:
         lin_img = img_arr ** 2.2
@@ -196,7 +193,7 @@ def run_gray_pipeline(
 
     with torch.no_grad():
         # ordinal shading estimation --------------------------
-        
+
         # resize image for base and full estimations and send through ordinal net
         base_input = base_resize(lin_img, base_size)
         full_input = lin_img
@@ -206,7 +203,7 @@ def run_gray_pipeline(
 
         base_out = models['ord_model'](base_input.unsqueeze(0)).squeeze(0)
         full_out = models['ord_model'](full_input.unsqueeze(0)).squeeze(0)
-        
+
         # the ordinal estimations come out of the model with a channel dim
         base_out = base_out.permute(1, 2, 0).cpu().numpy()
         full_out = full_out.permute(1, 2, 0).cpu().numpy()
@@ -224,7 +221,7 @@ def run_gray_pipeline(
         inp = torch.from_numpy(lin_img).permute(2, 0, 1).to(device)
         bse = torch.from_numpy(ord_base).permute(2, 0, 1).to(device)
         fll = torch.from_numpy(ord_full).permute(2, 0, 1).to(device)
-        
+
         # combine the base and full ordinal estimations w/ the input image
         # NOTE: this is just for ablation studies provided in the paper
         if inputs == 'full':
@@ -237,12 +234,12 @@ def run_gray_pipeline(
             combined = torch.cat((inp, bse, fll), 0).unsqueeze(0)
 
         inv_shd = models['iid_model'](combined).squeeze(1)
-        
+
         # the shading comes out in the inverse space so undo it 
         shd = uninvert(inv_shd)
         alb = inp / shd
         # ------------------------------------------------------
-    
+
     # put all the outputs into a dictionary to return
     inv_shd = inv_shd.squeeze(0).detach().cpu().numpy()
     alb = alb.permute(1, 2, 0).detach().cpu().numpy()
@@ -254,7 +251,6 @@ def run_gray_pipeline(
         inv_shd = resize(inv_shd, (orig_h, orig_w), anti_aliasing=True)
         alb = resize(alb, (orig_h, orig_w), anti_aliasing=True)
 
-
     results['ord_full'] = ord_full
     results['ord_base'] = ord_base
 
@@ -265,8 +261,8 @@ def run_gray_pipeline(
 
     return results
 
+
 def run_pipeline(models, img_arr, stage=4, resize_conf=0.0, base_size=384, linear=False, device='cuda'):
-    
     results = run_gray_pipeline(
         models,
         img_arr,
@@ -313,7 +309,7 @@ def run_pipeline(models, img_arr, stage=4, resize_conf=0.0, base_size=384, linea
     iuv_shd = torch.cat((net_shd, uv_shd), 1)
     rough_shd = batch_iuv2rgb(iuv_shd)
     rough_alb = net_img / rough_shd
-    
+
     rough_alb *= 0.75 / torch.quantile(rough_alb, 0.99)
     rough_alb = rough_alb.clip(0.001)
     rough_shd = net_img / rough_alb
@@ -349,7 +345,7 @@ def run_pipeline(models, img_arr, stage=4, resize_conf=0.0, base_size=384, linea
     hr_clr = to2np(batch_iuv2rgb(hr_clr).squeeze(0))
     wb_img = (hr_alb * get_brightness(hr_shd)).clip(0, 1)
 
-    results['hr_alb'] = hr_alb
+    results['hr_alb'] = hr_alb # the only output we want
     results['hr_shd'] = hr_shd
     results['hr_clr'] = hr_clr
     results['wb_img'] = wb_img
@@ -368,7 +364,7 @@ def run_pipeline(models, img_arr, stage=4, resize_conf=0.0, base_size=384, linea
 
     dif_img = (hr_alb * dif_shd)
     res = img - dif_img
-    
+
     neg_res = res.copy()
     neg_res[neg_res > 0] = 0
     neg_res = abs(neg_res)
