@@ -47,7 +47,7 @@ def _make_pretrained_resnext101_wsl(use_pretrained, in_chan=3, group_width=8):
     resnet = torch.hub.load(
         "facebookresearch/WSL-Images",
         f"resnext101_32x{group_width}d_wsl",
-        pretrained=use_pretrained,
+        # pretrained=use_pretrained,
     )
     if in_chan != 3:
         resnet.conv1 = torch.nn.Conv2d(in_chan, 64, 7, 2, 3, bias=False)
